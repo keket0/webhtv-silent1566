@@ -1,0 +1,35 @@
+name: Sync Upstream
+on:
+  schedule:
+    - cron: "0 21 * * *"
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: sync-upstream
+  cancel-in-progress: true
+jobs:
+  sync:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Sync with upstream
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          repo="${GITHUB_REPOSITORY}"
+          branch="${{ github.event.repository.default_branch }}"
+          up=$(gh api "repos/${repo}" --jq '.parent.full_name // empty')
+          if [ -z "${up}" ]; then echo "not a fork, skip"; exit 0; fi
+          echo "upstream=${up} branch=${branch}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote add upstream "https://github.com/${up}.git" 2>/dev/null || git remote set-url upstream "https://github.com/${up}.git"
+          git fetch upstream --prune
+          if git merge-base --is-ancestor "upstream/${branch}" HEAD; then echo "already up to date"; exit 0; fi
+          git rebase "upstream/${branch}"
+          git push --force-with-lease origin "HEAD:${branch}"
